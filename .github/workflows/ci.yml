@@ -25,5 +25,5 @@ jobs:
 
     - name: Run Python script
       run: |
-        python trade.py  # Replace with the correct file name
+        python trade.py  # Replace with the correct file name 
     

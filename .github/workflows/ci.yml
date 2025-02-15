@@ -42,8 +42,8 @@ jobs:
         pip install pandas numpy matplotlib okx
         pip install TA-Lib  # Install TA-Lib Python bindings after system dependencies are installed
 
-    # Step 5: Run the Python script
+    # Step 5: Run the Python script (replace script.py with your actual script)
     - name: Run Python script
       run: |
         python trade.py  # Replace with the correct file name where your script resides
-    
+     

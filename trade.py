@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from okx import AccountAPI
+from okx.account import AccountAPI  # Adjusted import path based on actual package structure
 
 # OKX API credentials (replace with your actual API keys)
 api_key = '6957d184-5bef-44c2-a5e5-c149d8506352'  # Replace with your OKX API key

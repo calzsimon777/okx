@@ -1,13 +1,12 @@
 import pandas as pd
 import numpy as np
-import talib as ta
 import matplotlib.pyplot as plt
 from okx import AccountAPI
 
 # OKX API credentials (replace with your actual API keys)
-    'apiKey': '6957d184-5bef-44c2-a5e5-c149d8506352',  # Replace with your OKX API key
-    'secret': '4D12FF62D04CCB36EFA87830140BB6AB',  # Replace with your OKX API secret
-    'password': 'Okxarbitrage1+',  # OKX requires a passphrase
+api_key = '6957d184-5bef-44c2-a5e5-c149d8506352'  # Replace with your OKX API key
+api_secret = '4D12FF62D04CCB36EFA87830140BB6AB'  # Replace with your OKX API secret
+passphrase = 'Okxarbitrage1+'  # OKX requires a passphrase
 
 # Initialize OKX Account API client
 account_api = AccountAPI(api_key, api_secret, passphrase)
@@ -43,8 +42,8 @@ data = pd.DataFrame({
     'Volume': np.random.randint(100, 1000, size=100),
 })
 
-# Adding SMA (Simple Moving Average)
-data['SMA'] = ta.SMA(data['Close'], timeperiod=25)
+# Adding SMA (Simple Moving Average) using pandas
+data['SMA'] = data['Close'].rolling(window=25).mean()
 
 # --- Trendline Breakout Logic ---
 def detect_trendline_breaks(data, length=14):

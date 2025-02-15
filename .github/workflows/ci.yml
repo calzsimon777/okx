@@ -3,27 +3,42 @@ name: Python CI
 on:
   push:
     branches:
-      - main  # Change to your target branch if necessary
+      - main  # Trigger the workflow when pushing to the main branch
 
 jobs:
   build:
-    runs-on: ubuntu-latest  # Use an Ubuntu environment
+    runs-on: ubuntu-latest  # Use the latest version of Ubuntu for the environment
 
     steps:
+    # Step 1: Checkout the code from the repository
     - name: Checkout repository
       uses: actions/checkout@v2
 
+    # Step 2: Install system dependencies for TA-Lib (required by TA-Lib Python bindings)
+    - name: Install TA-Lib system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential libatlas-base-dev gfortran
+        sudo apt-get install -y libta-lib0 libta-lib-dev  # Install TA-Lib dependencies
+
+    # Step 3: Set up Python (specify version 3.9)
     - name: Set up Python
       uses: actions/setup-python@v2
       with:
-        python-version: '3.9'
+        python-version: '3.9'  # Can change the version if needed (e.g., '3.8')
 
+    # Step 4: Install Python dependencies
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install pandas numpy matplotlib TA-Lib okx
+        pip install pandas numpy matplotlib okx
+        pip install TA-Lib  # Install TA-Lib after the system dependencies are in place
 
+    # Step 5: Run the Python script
     - name: Run Python script
       run: |
-        python trade.py  # Replace with the correct file name 
-    
+        python script.py  # Replace with the correct file name where your script resides
+      env:
+        API_KEY: ${{ secrets.API_KEY }}  # API Key stored securely in GitHub secrets
+        API_SECRET: ${{ secrets.API_SECRET }}  # API Secret stored in GitHub secrets
+        PASSPHRASE: ${{ secrets.PASSPHRASE }}  # API Passphrase stored in GitHub secrets

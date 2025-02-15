@@ -1,0 +1,18 @@
+image: python:3.9  # Use a Python image from Docker Hub
+
+stages:
+  - setup
+  - run
+
+# Install dependencies
+install_dependencies:
+  stage: setup
+  script:
+    - pip install --upgrade pip
+    - pip install pandas numpy matplotlib TA-Lib okx
+
+# Run the Python script
+run_script:
+  stage: run
+  script:
+    - python trade.py  # Replace with your actual Python file name

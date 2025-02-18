@@ -90,11 +90,11 @@ def on_message(ws, message):
             # Stop loss exit
             if trade_in_progress:
                 if active_trade == 'buy' and price <= stop_loss_price:
-                    close_trade('SUI-USDT', 'sell', position_size)
+                    close_trade('SUI-USDT', 'sell', position_size)  # Sell to close buy trade
                     print(f"Sell order placed due to stop loss at {price}")
                     trade_in_progress = False
                 elif active_trade == 'sell' and price >= stop_loss_price:
-                    close_trade('SUI-USDT', 'buy', position_size)
+                    close_trade('SUI-USDT', 'buy', position_size)  # Buy to close sell trade
                     print(f"Buy order placed due to stop loss at {price}")
                     trade_in_progress = False
 

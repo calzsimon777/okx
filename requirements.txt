@@ -2,4 +2,4 @@ okx
 websocket-client
 pandas
 numpy
-finta
+git+https://github.com/peerchemist/finta.git

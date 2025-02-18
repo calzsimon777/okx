@@ -33,7 +33,7 @@ jobs:
       # Step 4: Run the Python script (the trading bot script in this case)
       - name: Run Trading Bot
         run: |
-          nohup python3 bot_script.py > bot_log.log 2>&1 &  # Adjust the script name and redirection as needed
+          nohup python3 trade.py > bot_log.log 2>&1 &  # Adjusted to run trade.py
 
       # Step 5: Upload logs if needed
       - name: Upload bot logs

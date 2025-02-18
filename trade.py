@@ -1,135 +1,152 @@
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
-from okx.account import AccountAPI  # Adjusted import path based on actual package structure
+import time
+import json
+import finta as ft
+from okx import AccountAPI
+import websocket
+import threading
 
-# OKX API credentials (replace with your actual API keys)
-api_key = '6957d184-5bef-44c2-a5e5-c149d8506352'  # Replace with your OKX API key
-api_secret = '4D12FF62D04CCB36EFA87830140BB6AB'  # Replace with your OKX API secret
-passphrase = 'Okxarbitrage1+'  # OKX requires a passphrase
+# OKX API credentials
+api_key = '6957d184-5bef-44c2-a5e5-c149d8506352'  # Replace with your OKX API key
+api_secret = '4D12FF62D04CCB36EFA87830140BB6AB'  # Replace with your OKX API secret
+passphrase = 'Okxarbitrage1+'  # OKX requires a passphrase
 
 # Initialize OKX Account API client
 account_api = AccountAPI(api_key, api_secret, passphrase)
 
-# Fetch the portfolio balance for USDT (or any other asset you want)
+# WebSocket endpoint URL
+ws_url = "wss://real.okx.com:8443/ws/v5/public"
+
+# Initialize global variables
+active_trade = None
+entry_price = None
+entry_time = None
+stop_loss_price = None
+position_size = 0
+trade_in_progress = False
+
+# Portfolio management functions
 def get_portfolio_value():
-    # Get the account balance
-    balance = account_api.get_account_balance()
-   
-    # Find the balance for USDT
-    usdt_balance = next(item for item in balance['data'] if item['currency'] == 'USDT')
-    portfolio_value = float(usdt_balance['available'])  # Get the available USDT balance
-    return portfolio_value
+    balance = account_api.get_account_balance()
+    usdt_balance = next(item for item in balance['data'] if item['currency'] == 'USDT')
+    return float(usdt_balance['available'])
 
-# Fetch the portfolio balance (account balance in USDT)
-portfolio_value = get_portfolio_value()
-print(f"Portfolio Value: {portfolio_value} USDT")
+def place_order(symbol, side, size, price=None):
+    """Place a market order on OKX"""
+    params = {
+        "instId": symbol,
+        "tdMode": "cash",  # margin or cash
+        "side": side,  # 'buy' or 'sell'
+        "ordType": "market",  # or 'limit'
+        "sz": str(size),  # Amount to buy/sell
+        "px": price if price else None  # Price for limit orders
+    }
+    response = account_api.place_order(params)
+    return response
 
-# Risk management parameters
-risk_percentage = 0.25  # 25% risk per trade
-risk_amount = portfolio_value * risk_percentage  # Total risk amount
+def close_trade(symbol, side, size):
+    """Close an active trade by placing the opposite order"""
+    return place_order(symbol, side, size)
 
-# Position Size (0.02% from entry position)
-risk_per_trade_percent = 0.02  # This is a 0.02% risk from entry position
+# WebSocket Functions
+def on_message(ws, message):
+    """Handle incoming WebSocket messages"""
+    global active_trade, entry_price, entry_time, stop_loss_price, position_size, trade_in_progress
 
-# Dummy data example for testing purposes (replace with actual data)
-data = pd.DataFrame({
-    'Date': pd.date_range(start='2023-01-01', periods=100, freq='T'),
-    'Open': np.random.rand(100) * 100 + 100,
-    'High': np.random.rand(100) * 100 + 105,
-    'Low': np.random.rand(100) * 100 + 95,
-    'Close': np.random.rand(100) * 100 + 100,
-    'Volume': np.random.randint(100, 1000, size=100),
-})
+    data = json.loads(message)
+    if "arg" in data and data["arg"]["channel"] == "market":
+        ticker_data = data['data'][0]
+        price = float(ticker_data["last"])
 
-# Adding SMA (Simple Moving Average) using pandas
-data['SMA'] = data['Close'].rolling(window=25).mean()
+        # If no active trade, check for entry signals
+        if not trade_in_progress:
+            # Check for breakout or trend signals based on your logic
+            if condition_for_buy(price):  # Example condition
+                # Buy order logic
+                active_trade = 'buy'
+                entry_price = price
+                entry_time = time.time()
+                stop_loss_price = entry_price * (1 - 0.02 / 100)  # 0.02% stop loss
+                position_size = calculate_position_size(price)  # Define risk management here
+                place_order('SUI-USDT', 'buy', position_size)
+                print(f"Buy order placed at {entry_price}")
 
-# --- Trendline Breakout Logic ---
-def detect_trendline_breaks(data, length=14):
-    data['PivotHigh'] = data['High'].rolling(window=length, min_periods=1).max()
-    data['PivotLow'] = data['Low'].rolling(window=length, min_periods=1).min()
+            elif condition_for_sell(price):  # Example condition
+                # Sell order logic
+                active_trade = 'sell'
+                entry_price = price
+                entry_time = time.time()
+                stop_loss_price = entry_price * (1 + 0.02 / 100)  # 0.02% stop loss
+                position_size = calculate_position_size(price)
+                place_order('SUI-USDT', 'sell', position_size)
+                print(f"Sell order placed at {entry_price}")
 
-    data['BreakoutUp'] = data['Close'] > data['PivotHigh']
-    data['BreakoutDown'] = data['Close'] < data['PivotLow']
+        # Stop loss exit
+        if trade_in_progress:
+            if active_trade == 'buy' and price <= stop_loss_price:
+                close_trade('SUI-USDT', 'sell', position_size)
+                print(f"Sell order placed due to stop loss at {price}")
+                trade_in_progress = False
+            elif active_trade == 'sell' and price >= stop_loss_price:
+                close_trade('SUI-USDT', 'buy', position_size)
+                print(f"Buy order placed due to stop loss at {price}")
+                trade_in_progress = False
 
-    return data
+            # Trailing Stop Logic (after 4 minutes)
+            if time.time() - entry_time > 240:  # 4 minutes
+                sma25 = calculate_sma25()  # Implement SMA calculation based on real-time data
+                if active_trade == 'buy' and price < sma25:
+                    close_trade('SUI-USDT', 'sell', position_size)
+                    print(f"Sell order placed due to trailing stop at {price}")
+                    trade_in_progress = False
+                elif active_trade == 'sell' and price > sma25:
+                    close_trade('SUI-USDT', 'buy', position_size)
+                    print(f"Buy order placed due to trailing stop at {price}")
+                    trade_in_progress = False
 
-data = detect_trendline_breaks(data)
+def on_error(ws, error):
+    print(f"Error occurred: {error}")
 
-# --- Entry and Exit Logic ---
-def apply_trade_logic(data):
-    in_trade = False
-    entry_price = None
-    entry_bar = None
-    position_size = 0
-    exits = []
-    position_tracker = []
+def on_close(ws, close_status_code, close_msg):
+    print("### WebSocket closed ###")
 
-    for i in range(1, len(data)):
-        # Entry signal logic
-        if data['BreakoutUp'][i] and not in_trade:
-            entry_price = data['Close'][i]
-            entry_bar = i
-            in_trade = True
+def on_open(ws):
+    """Subscribe to WebSocket feeds"""
+    subscribe_message = {
+        "op": "subscribe",
+        "args": [{"channel": "market", "instId": "SUI-USDT"}]  # Replace with desired symbol
+    }
+    ws.send(json.dumps(subscribe_message))
 
-            # Calculate position size based on risk management
-            stop_loss_distance = entry_price * risk_per_trade_percent / 100  # 0.02% from entry
-            position_size = risk_amount / stop_loss_distance  # How many units of the asset to buy
+# WebSocket connection
+ws = websocket.WebSocketApp(ws_url, on_message=on_message, on_error=on_error, on_close=on_close)
+ws.on_open = on_open
 
-            # Track the entry
-            position_tracker.append(('Entry', data['Date'][i], entry_price, position_size))
+# Start WebSocket in background thread
+ws_thread = threading.Thread(target=ws.run_forever)
+ws_thread.start()
 
-            print(f"Entry at {data['Date'][i]} with price {entry_price}, Position size: {position_size}")
+# Helper functions
+def condition_for_buy(price):
+    # Implement your buy condition logic here (e.g., breakout)
+    return False  # Replace with actual condition
 
-        # Exit for long position: if price goes below entry point after 2 minutes
-        if in_trade and i - entry_bar <= 2:
-            if data['Close'][i] < entry_price and data['Close'][i-1] >= entry_price:
-                print(f"Exit after 2 minutes (loss) for long: Price went below entry at {data['Date'][i]}")
-                exits.append((data['Date'][i], data['Close'][i]))
-                position_tracker.append(('Exit', data['Date'][i], data['Close'][i], position_size))
-                in_trade = False
+def condition_for_sell(price):
+    # Implement your sell condition logic here (e.g., breakout)
+    return False  # Replace with actual condition
 
-        # Exit for short position: if price goes above entry point after 2 minutes
-        if in_trade and i - entry_bar <= 2:
-            if data['Close'][i] > entry_price and data['Close'][i-1] <= entry_price:
-                print(f"Exit after 2 minutes (loss) for short: Price went above entry at {data['Date'][i]}")
-                exits.append((data['Date'][i], data['Close'][i]))
-                position_tracker.append(('Exit', data['Date'][i], data['Close'][i], position_size))
-                in_trade = False
+def calculate_position_size(price):
+    portfolio_value = get_portfolio_value()
+    risk_amount = portfolio_value * 0.3  # 30% risk per trade
+    stop_loss_distance = price * 0.02 / 100  # 0.02% risk
+    position_size = risk_amount / stop_loss_distance
+    return position_size
 
-        # Trailing Stop: Exit if price crosses below the SMA after 4 bars
-        if in_trade and i - entry_bar >= 4:
-            # For a short position, exit if price crosses above SMA 25
-            if data['Close'][i] > data['SMA'][i]:
-                print(f"Exit for short position: Price crossed above SMA at {data['Date'][i]} with price {data['Close'][i]}")
-                exits.append((data['Date'][i], data['Close'][i]))
-                position_tracker.append(('Exit', data['Date'][i], data['Close'][i], position_size))
-                in_trade = False
-
-            # For a long position, exit if price crosses below SMA 25
-            if data['Close'][i] < data['SMA'][i]:
-                print(f"Exit for long position: Price crossed below SMA at {data['Date'][i]} with price {data['Close'][i]}")
-                exits.append((data['Date'][i], data['Close'][i]))
-                position_tracker.append(('Exit', data['Date'][i], data['Close'][i], position_size))
-                in_trade = False
-
-    return exits, position_tracker
-
-# Apply the trading logic to the data
-exits, position_tracker = apply_trade_logic(data)
-
-# --- Visualize (Optional) ---
-plt.figure(figsize=(10, 5))
-plt.plot(data['Date'], data['Close'], label='Close Price')
-plt.plot(data['Date'], data['SMA'], label='SMA 25', color='orange')
-plt.scatter([e[0] for e in exits], [e[1] for e in exits], color='red', label='Exit Points')
-plt.title('Price and Trading Strategy')
-plt.xlabel('Date')
-plt.ylabel('Price')
-plt.legend()
-plt.xticks(rotation=45)
-plt.show()
-
-# Print the position tracker to see entries and exits
-print(position_tracker)
+def calculate_sma25():
+    # Implement SMA25 calculation using Finta
+    df = pd.DataFrame({
+        'close': [100, 102, 105, 107, 110, 108, 106, 109, 111, 113]  # Replace with real-time data
+    })
+    sma25 = ft.sma(df, 25)
+    return sma25.iloc[-1]  # Return the most recent SMA value

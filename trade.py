@@ -87,18 +87,19 @@ def on_message(ws, message):
                     place_order('SUI-USDT', 'sell', position_size)
                     print(f"Sell order placed at {entry_price}")
 
-            # Stop loss exit
+            # Exit conditions
             if trade_in_progress:
+                # 1. Stop loss exit condition (already in place)
                 if active_trade == 'buy' and price <= stop_loss_price:
-                    close_trade('SUI-USDT', 'sell', position_size)  # Sell to close buy trade
+                    close_trade('SUI-USDT', 'sell', position_size)
                     print(f"Sell order placed due to stop loss at {price}")
                     trade_in_progress = False
                 elif active_trade == 'sell' and price >= stop_loss_price:
-                    close_trade('SUI-USDT', 'buy', position_size)  # Buy to close sell trade
+                    close_trade('SUI-USDT', 'buy', position_size)
                     print(f"Buy order placed due to stop loss at {price}")
                     trade_in_progress = False
 
-                # Trailing Stop Logic (after 4 minutes)
+                # 2. Trailing stop condition (after 4 minutes, already in place)
                 if time.time() - entry_time > 240:  # 4 minutes
                     sma25 = calculate_sma25()  # Implement SMA calculation based on real-time data
                     if active_trade == 'buy' and price < sma25:
@@ -108,6 +109,17 @@ def on_message(ws, message):
                     elif active_trade == 'sell' and price > sma25:
                         close_trade('SUI-USDT', 'buy', position_size)
                         print(f"Buy order placed due to trailing stop at {price}")
+                        trade_in_progress = False
+
+                # 3. New exit condition: Retracement after 2 minutes (causing a loss)
+                if time.time() - entry_time >= 120:  # 2 minutes
+                    if active_trade == 'buy' and price < entry_price:  # Price dropped below entry for a buy trade
+                        close_trade('SUI-USDT', 'sell', position_size)
+                        print(f"Sell order placed due to price retracement (loss) at {price}")
+                        trade_in_progress = False
+                    elif active_trade == 'sell' and price > entry_price:  # Price increased above entry for a sell trade
+                        close_trade('SUI-USDT', 'buy', position_size)
+                        print(f"Buy order placed due to price retracement (loss) at {price}")
                         trade_in_progress = False
 
 def on_error(ws, error):

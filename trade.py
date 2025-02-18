@@ -27,6 +27,11 @@ position_size = 0
 trade_in_progress = False
 last_trade_time = time.time()  # Track last trade time
 
+# List of trading pairs to monitor
+pairs_to_monitor = [
+    "TRX-USDT", "SOL-USDT", "PEPE-USDT", "DOGE-USDT", "AVAX-USDT", "JUP-USDT", "FIL-USDT"
+]
+
 # Portfolio management functions
 def get_portfolio_value():
     balance = account_api.get_account_balance()
@@ -58,6 +63,7 @@ def on_message(ws, message):
     data = json.loads(message)
     if "arg" in data and data["arg"]["channel"] == "market":
         ticker_data = data['data'][0]
+        pair = data["arg"]["instId"]  # The trading pair (e.g., SUI-USDT, BTC-USDT, etc.)
         price = float(ticker_data["last"])
 
         # Check if one minute has passed since the last trade update
@@ -67,59 +73,58 @@ def on_message(ws, message):
             # If no active trade, check for entry signals
             if not trade_in_progress:
                 # Check for breakout or trend signals based on your logic
-                if condition_for_buy(price):  # Example condition
+                if condition_for_buy(pair, price):  # Example condition
                     # Buy order logic
                     active_trade = 'buy'
                     entry_price = price
                     entry_time = time.time()
                     stop_loss_price = entry_price * (1 - 0.02 / 100)  # 0.02% stop loss
                     position_size = calculate_position_size(price)  # Define risk management here
-                    place_order('SUI-USDT', 'buy', position_size)
-                    print(f"Buy order placed at {entry_price}")
+                    place_order(pair, 'buy', position_size)
+                    print(f"Buy order placed for {pair} at {entry_price}")
 
-                elif condition_for_sell(price):  # Example condition
+                elif condition_for_sell(pair, price):  # Example condition
                     # Sell order logic
                     active_trade = 'sell'
                     entry_price = price
                     entry_time = time.time()
                     stop_loss_price = entry_price * (1 + 0.02 / 100)  # 0.02% stop loss
                     position_size = calculate_position_size(price)
-                    place_order('SUI-USDT', 'sell', position_size)
-                    print(f"Sell order placed at {entry_price}")
+                    place_order(pair, 'sell', position_size)
+                    print(f"Sell order placed for {pair} at {entry_price}")
 
-            # Exit conditions
+            # Stop loss exit
             if trade_in_progress:
-                # 1. Stop loss exit condition (already in place)
                 if active_trade == 'buy' and price <= stop_loss_price:
-                    close_trade('SUI-USDT', 'sell', position_size)
-                    print(f"Sell order placed due to stop loss at {price}")
+                    close_trade(pair, 'sell', position_size)
+                    print(f"Sell order placed for {pair} due to stop loss at {price}")
                     trade_in_progress = False
                 elif active_trade == 'sell' and price >= stop_loss_price:
-                    close_trade('SUI-USDT', 'buy', position_size)
-                    print(f"Buy order placed due to stop loss at {price}")
+                    close_trade(pair, 'buy', position_size)
+                    print(f"Buy order placed for {pair} due to stop loss at {price}")
                     trade_in_progress = False
 
-                # 2. Trailing stop condition (after 4 minutes, already in place)
+                # Exit after 2 minutes if price reverts past entry causing a loss
+                if time.time() - entry_time >= 120:  # 2 minutes
+                    if active_trade == 'buy' and price < entry_price:
+                        close_trade(pair, 'sell', position_size)
+                        print(f"Sell order placed for {pair} due to price reversion at {price}")
+                        trade_in_progress = False
+                    elif active_trade == 'sell' and price > entry_price:
+                        close_trade(pair, 'buy', position_size)
+                        print(f"Buy order placed for {pair} due to price reversion at {price}")
+                        trade_in_progress = False
+
+                # Trailing Stop Logic (after 4 minutes)
                 if time.time() - entry_time > 240:  # 4 minutes
                     sma25 = calculate_sma25()  # Implement SMA calculation based on real-time data
                     if active_trade == 'buy' and price < sma25:
-                        close_trade('SUI-USDT', 'sell', position_size)
-                        print(f"Sell order placed due to trailing stop at {price}")
+                        close_trade(pair, 'sell', position_size)
+                        print(f"Sell order placed for {pair} due to trailing stop at {price}")
                         trade_in_progress = False
                     elif active_trade == 'sell' and price > sma25:
-                        close_trade('SUI-USDT', 'buy', position_size)
-                        print(f"Buy order placed due to trailing stop at {price}")
-                        trade_in_progress = False
-
-                # 3. New exit condition: Retracement after 2 minutes (causing a loss)
-                if time.time() - entry_time >= 120:  # 2 minutes
-                    if active_trade == 'buy' and price < entry_price:  # Price dropped below entry for a buy trade
-                        close_trade('SUI-USDT', 'sell', position_size)
-                        print(f"Sell order placed due to price retracement (loss) at {price}")
-                        trade_in_progress = False
-                    elif active_trade == 'sell' and price > entry_price:  # Price increased above entry for a sell trade
-                        close_trade('SUI-USDT', 'buy', position_size)
-                        print(f"Buy order placed due to price retracement (loss) at {price}")
+                        close_trade(pair, 'buy', position_size)
+                        print(f"Buy order placed for {pair} due to trailing stop at {price}")
                         trade_in_progress = False
 
 def on_error(ws, error):
@@ -132,7 +137,7 @@ def on_open(ws):
     """Subscribe to WebSocket feeds"""
     subscribe_message = {
         "op": "subscribe",
-        "args": [{"channel": "market", "instId": "SUI-USDT"}]  # Replace with desired symbol
+        "args": [{"channel": "market", "instId": pair} for pair in pairs_to_monitor]  # Subscribe to all pairs in the list
     }
     ws.send(json.dumps(subscribe_message))
 
@@ -145,11 +150,11 @@ ws_thread = threading.Thread(target=ws.run_forever)
 ws_thread.start()
 
 # Helper functions
-def condition_for_buy(price):
+def condition_for_buy(pair, price):
     # Implement your buy condition logic here (e.g., breakout)
     return False  # Replace with actual condition
 
-def condition_for_sell(price):
+def condition_for_sell(pair, price):
     # Implement your sell condition logic here (e.g., breakout)
     return False  # Replace with actual condition
 
